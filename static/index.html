@@ -1,0 +1,152 @@
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Synchronized WebSocket Demo</title>
+    <style>
+        .main-controls {
+            display: none;
+        }
+        .main-active .main-controls {
+            display: block;
+        }
+        .main-exists #become-main {
+            display: none;
+        }
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+        }
+        #status {
+            margin: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <button id="become-main">Become Main Client</button>
+        
+        <div class="main-controls">
+            <h2>Main Client Controls</h2>
+            <div class="control-buttons">
+                <button id="start-btn">START</button>
+                <button id="stop-btn">STOP</button>
+            </div>
+        </div>
+        
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let ws;
+        let isMain = false;
+        let clientId = null;
+        
+        function connect() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${wsProtocol}//${window.location.hostname}:8080/ws`);
+            
+            ws.onopen = () => {
+                console.log('Connected to server');
+                document.getElementById('status').textContent = 'Connected';
+            };
+            
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                console.log('Received message:', msg);
+                
+                if (msg.type === 'init') {
+                    // دریافت ID از سرور
+                    clientId = msg.clientId;
+                    console.log('Received client ID from server:', clientId);
+                }
+                else if (msg.type === 'main_status') {
+                    handleMainStatus(msg);
+                } else if (msg.type === 'command') {
+                    handleCommand(msg);
+                }
+            };
+            
+            ws.onclose = () => {
+                console.log('Disconnected');
+                document.getElementById('status').textContent = 'Disconnected';
+                setTimeout(connect, 1000);
+            };
+        }
+        
+        function handleMainStatus(msg) {
+            console.log('Handling main status:', msg);
+            console.log('Current clientId:', clientId);
+            
+            const mainExists = msg.mainId !== "";
+            document.body.classList.toggle('main-exists', mainExists);
+            
+            if (mainExists) {
+                document.getElementById('status').textContent = 
+                    `Main client (${msg.mainId}) is active`;
+                
+                if (msg.mainId === clientId) {
+                    console.log('This client is now main');
+                    isMain = true;
+                    document.body.classList.add('main-active');
+                } else {
+                    console.log('This client is not main');
+                    isMain = false;
+                    document.body.classList.remove('main-active');
+                }
+            } else {
+                document.getElementById('status').textContent = 'No main client active';
+                isMain = false;
+                document.body.classList.remove('main-active');
+            }
+        }
+        
+        function handleCommand(msg) {
+            const targetTime = parseInt(msg.time);
+            const now = Date.now() * 1000000;
+            const delay = Math.max(0, (targetTime - now) / 1000000);
+            
+            setTimeout(() => {
+                document.getElementById('status').textContent = 
+                    `Executing command: ${msg.command} at ${new Date().toISOString()}`;
+            }, delay);
+        }
+        
+        document.getElementById('become-main').addEventListener('click', () => {
+            console.log('Requesting to become main with ID:', clientId);
+            ws.send(JSON.stringify({
+                type: 'become_main',
+                clientId: clientId
+            }));
+        });
+        
+        document.getElementById('start-btn').addEventListener('click', () => {
+            console.log('Start button clicked, isMain:', isMain);
+            if (isMain) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    command: 'start',
+                    clientId: clientId
+                }));
+            }
+        });
+        
+        document.getElementById('stop-btn').addEventListener('click', () => {
+            console.log('Stop button clicked, isMain:', isMain);
+            if (isMain) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    command: 'stop',
+                    clientId: clientId
+                }));
+            }
+        });
+        
+        // Connect when page loads
+        connect();
+    </script>
+</body>
+</html>
